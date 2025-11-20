@@ -1,0 +1,99 @@
+sequenceDiagram
+    participant User1 as User A Browser
+    participant User2 as User B Browser
+    participant ALB as Application Load Balancer
+    participant ECS as ECS Fargate Task
+    participant Redis as ElastiCache Redis
+    participant RDS as PostgreSQL Database
+    participant S3 as S3 Bucket
+    participant SNS as SNS/Email
+    participant AS as Auto Scaling
+
+    Note over User1: User A watches video
+    
+    User1->>ALB: GET /video/9876
+    ALB->>ECS: Route to available task
+    
+    ECS->>Redis: GET video:9876:metadata
+    
+    alt Cache Hit
+        Redis-->>ECS: {title, url, views, thumbnail}<br/>Cache hit! (5ms response)
+        Note over ECS: Skip database query
+    else Cache Miss
+        Redis-->>ECS: Cache miss
+        ECS->>RDS: SELECT * FROM videos WHERE id=9876
+        RDS-->>ECS: Video metadata
+        ECS->>Redis: SET video:9876:metadata<br/>TTL: 3600s
+        Redis-->>ECS: Cached for future requests
+    end
+    
+    ECS->>S3: Generate pre-signed URL<br/>Expires in 1 hour
+    S3-->>ECS: Signed URL with credentials
+    
+    ECS->>RDS: UPDATE videos SET views=views+1<br/>WHERE id=9876
+    RDS-->>ECS: View count incremented
+    
+    ECS->>Redis: INCR video:9876:views
+    Redis-->>ECS: Redis counter updated
+    
+    Note over ECS: Check current load<br/>CPU: 75%
+    
+    ECS->>AS: Report high CPU metrics
+    AS->>CW: Check scaling policy<br/>CPU > 70% for 3 minutes
+    CW->>AS: Trigger scale-out
+    AS->>ECS: Launch new task
+    Note over AS: Task count: 2 → 3
+    
+    ECS-->>ALB: HTTP 200 OK<br/>{video_url, metadata}
+    ALB-->>User1: Stream video from S3
+    
+    User1->>S3: GET signed URL<br/>Stream video chunks
+    S3-->>User1: Video stream (HLS/mp4)
+    
+    Note over User1: User A shares video with User B
+    
+    User1->>ALB: POST /share<br/>{video_id: 9876, recipient_email}
+    ALB->>ECS: Route share request
+    
+    ECS->>Redis: GET session:user_a
+    Redis-->>ECS: User A authenticated
+    
+    ECS->>RDS: INSERT INTO shares<br/>(video_id, sender_id, recipient_email)
+    RDS-->>ECS: Share recorded (ID: 555)
+    
+    ECS->>RDS: SELECT email FROM users<br/>WHERE email=recipient_email
+    
+    alt User B has account
+        RDS-->>ECS: User B found (ID: 99999)
+        ECS->>RDS: INSERT INTO notifications<br/>(user_id: 99999, type: 'share', video_id: 9876)
+        RDS-->>ECS: Notification created
+        ECS->>Redis: PUBLISH notification:99999<br/>{type: 'share', from: 'User A'}
+        Redis-->>User2: Real-time notification<br/>(if User B online)
+    else User B not registered
+        RDS-->>ECS: Email not found
+        Note over ECS: Send invite email
+    end
+    
+    ECS->>SNS: Send email to User B<br/>"User A shared a video with you"<br/>Link: /video/9876?share=555
+    SNS-->>User2: Email with video link
+    
+    ECS->>RDS: UPDATE shares SET status='sent'<br/>WHERE id=555
+    RDS-->>ECS: Share status updated
+    
+    ECS-->>ALB: HTTP 200 OK<br/>"Video shared successfully"
+    ALB-->>User1: Share confirmation
+    
+    Note over User2: User B clicks email link
+    
+    User2->>ALB: GET /video/9876?share=555
+    ALB->>ECS: Route request
+    
+    ECS->>RDS: SELECT * FROM shares WHERE id=555
+    RDS-->>ECS: Share valid, from User A
+    
+    ECS->>RDS: UPDATE shares SET<br/>opened_at=NOW() WHERE id=555
+    RDS-->>ECS: Tracked that User B opened
+    
+    Note over ECS: Same video streaming flow as User A
+    
+    ECS-->>User2: Display video with message<br/>"Shared by User A"

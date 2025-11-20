@@ -1,0 +1,49 @@
+sequenceDiagram
+    participant User as User Browser
+    participant ALB as Application Load Balancer
+    participant ECS as ECS Fargate Task
+    participant Redis as ElastiCache Redis
+    participant RDS as PostgreSQL Database
+    participant S3 as S3 Bucket
+    participant CW as CloudWatch
+
+    User->>ALB: POST /upload<br/>video file + metadata<br/>Auth: Bearer token
+    ALB->>ECS: Route to healthy task
+    
+    Note over ECS: Verify JWT token
+    
+    ECS->>Redis: GET session:token
+    Redis-->>ECS: User ID: 12345, authenticated
+    
+    Note over ECS: Validate file:<br/>- Size < 2GB<br/>- Format: mp4/mov/avi<br/>- Not malicious
+    
+    ECS->>RDS: BEGIN TRANSACTION<br/>INSERT INTO videos<br/>(user_id, title, description, status='processing')
+    RDS-->>ECS: Video ID: 9876<br/>Status: Processing
+    
+    Note over ECS: Generate unique S3 key<br/>videos/12345/9876/video.mp4
+    
+    ECS->>S3: PUT Object<br/>Key: videos/12345/9876/video.mp4<br/>Multipart upload (chunks)
+    S3-->>ECS: Upload progress: 25%... 50%... 100%
+    S3-->>ECS: Object uploaded<br/>URL: s3://bucket/videos/12345/9876/video.mp4
+    
+    Note over ECS: Extract metadata:<br/>duration, resolution, codec
+    
+    ECS->>RDS: UPDATE videos SET<br/>s3_url=?, file_size=?, duration=?,<br/>status='ready' WHERE id=9876
+    RDS-->>ECS: COMMIT TRANSACTION<br/>Video ready
+    
+    ECS->>Redis: ZADD user:12345:videos<br/>timestamp 9876
+    Redis-->>ECS: Video cached in user's feed
+    
+    ECS->>Redis: SET video:9876:metadata<br/>{title, url, thumbnail}<br/>TTL: 3600s
+    Redis-->>ECS: Metadata cached
+    
+    ECS->>CW: Log video upload event<br/>LogGroup: /ecs/mediacms<br/>{user_id, video_id, size, duration}
+    CW-->>ECS: Event logged
+    
+    Note over CW: If storage > 80%<br/>Trigger CloudWatch Alarm
+    
+    CW->>SNS: Alert: "S3 storage high"
+    SNS-->>Admin: Email notification
+    
+    ECS-->>ALB: HTTP 201 Created<br/>{video_id: 9876, status: 'ready', url}
+    ALB-->>User: Upload successful!<br/>Video ready to share

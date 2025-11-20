@@ -1,0 +1,92 @@
+graph TB
+    subgraph "AWS Cloud - us-west-2"
+        subgraph "Public Subnets (10.0.1.0/24, 10.0.2.0/24, 10.0.3.0/24)"
+            IGW[Internet Gateway]
+            ALB[Application Load Balancer<br/>Port 80/443]
+            NAT1[NAT Gateway AZ-1]
+            NAT2[NAT Gateway AZ-2]
+            NAT3[NAT Gateway AZ-3]
+        end
+        
+        subgraph "Private Subnets (10.0.11.0/24, 10.0.12.0/24, 10.0.13.0/24)"
+            subgraph "ECS Fargate Cluster"
+                ECS1[ECS Task 1<br/>2 vCPU, 4GB RAM]
+                ECS2[ECS Task 2<br/>2 vCPU, 4GB RAM]
+                ECS3[ECS Task N<br/>Auto-scaled]
+            end
+            
+            subgraph "Data Layer"
+                RDS[(RDS PostgreSQL<br/>db.t3.medium<br/>Multi-AZ)]
+                REDIS[(ElastiCache Redis<br/>cache.t3.micro)]
+            end
+        end
+        
+        S3[S3 Bucket<br/>Media Storage<br/>Versioning Enabled]
+        
+        subgraph "Monitoring"
+            CW[CloudWatch<br/>Logs & Metrics]
+            SNS[SNS Topic<br/>Email Alerts]
+        end
+        
+        subgraph "Security Groups"
+            SG_ALB[ALB SG<br/>Allow: 80,443 from 0.0.0.0/0]
+            SG_ECS[ECS SG<br/>Allow: 80 from ALB]
+            SG_RDS[RDS SG<br/>Allow: 5432 from ECS]
+            SG_REDIS[Redis SG<br/>Allow: 6379 from ECS]
+        end
+    end
+    
+    Internet([Internet Users]) --> IGW
+    IGW --> ALB
+    ALB --> ECS1
+    ALB --> ECS2
+    ALB --> ECS3
+    
+    ECS1 --> RDS
+    ECS2 --> RDS
+    ECS3 --> RDS
+    
+    ECS1 --> REDIS
+    ECS2 --> REDIS
+    ECS3 --> REDIS
+    
+    ECS1 --> S3
+    ECS2 --> S3
+    ECS3 --> S3
+    
+    ECS1 -.-> NAT1
+    ECS2 -.-> NAT2
+    ECS3 -.-> NAT3
+    
+    NAT1 -.-> IGW
+    NAT2 -.-> IGW
+    NAT3 -.-> IGW
+    
+    ECS1 --> CW
+    ECS2 --> CW
+    ECS3 --> CW
+    RDS --> CW
+    REDIS --> CW
+    ALB --> CW
+    
+    CW --> SNS
+    SNS -.-> Admin[Admin Email]
+    
+    SG_ALB -.- ALB
+    SG_ECS -.- ECS1
+    SG_ECS -.- ECS2
+    SG_ECS -.- ECS3
+    SG_RDS -.- RDS
+    SG_REDIS -.- REDIS
+
+    style Internet fill:#e1f5ff
+    style IGW fill:#ff9800
+    style ALB fill:#4caf50
+    style ECS1 fill:#2196f3
+    style ECS2 fill:#2196f3
+    style ECS3 fill:#2196f3
+    style RDS fill:#9c27b0
+    style REDIS fill:#f44336
+    style S3 fill:#ff5722
+    style CW fill:#ffc107
+    style SNS fill:#00bcd4

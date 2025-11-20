@@ -1,0 +1,27 @@
+# terraform.tfvars.example
+# Copy this file to terraform.tfvars and fill in your values
+# DO NOT commit terraform.tfvars to version control!
+
+# AWS Configuration
+aws_region   = "us-west-2"
+project_name = "mediacms"
+
+# Email for CloudWatch Alerts
+alarm_email = "your-email@example.com"  # CHANGE THIS
+
+# Database Configuration
+db_password       = "CHANGEME_YourSecurePassword123!"  # CHANGE THIS - Use a strong password
+db_name           = "mediacms"
+db_username       = "mediacms_admin"
+db_instance_class = "db.t3.medium"
+
+# Container Configuration
+ecs_task_cpu      = "2048"   # 2 vCPUs
+ecs_task_memory   = "4096"   # 4 GB RAM
+ecs_desired_count = 2        # Number of containers
+ecs_min_capacity  = 2        # Auto-scaling minimum
+ecs_max_capacity  = 10       # Auto-scaling maximum
+cpu_target_value  = 70       # Target CPU % for auto-scaling
+
+# Redis Configuration
+redis_node_type = "cache.t3.micro"

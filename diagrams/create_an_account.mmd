@@ -1,0 +1,51 @@
+sequenceDiagram
+    participant User as User Browser
+    participant ALB as Application Load Balancer
+    participant ECS as ECS Fargate Task
+    participant Redis as ElastiCache Redis
+    participant RDS as PostgreSQL Database
+    participant SNS as SNS/Email
+
+    User->>ALB: POST /register<br/>{username, email, password}
+    ALB->>ECS: Route to healthy task
+    
+    Note over ECS: Validate input data
+    
+    ECS->>RDS: Check if email exists<br/>SELECT * FROM users WHERE email=?
+    RDS-->>ECS: No matching user found
+    
+    Note over ECS: Hash password with bcrypt
+    
+    ECS->>RDS: INSERT INTO users<br/>(username, email, password_hash)
+    RDS-->>ECS: User created (ID: 12345)
+    
+    Note over ECS: Generate verification token
+    
+    ECS->>RDS: INSERT INTO verification_tokens<br/>(user_id, token, expires_at)
+    RDS-->>ECS: Token saved
+    
+    ECS->>SNS: Send welcome email<br/>with verification link
+    SNS-->>User: Email: "Verify your account"
+    
+    ECS->>Redis: Cache user session<br/>SET session:12345 {user_data}
+    Redis-->>ECS: Session cached (TTL: 24h)
+    
+    ECS-->>ALB: HTTP 201 Created<br/>{user_id, message: "Check email"}
+    ALB-->>User: Account created successfully
+    
+    Note over User: User clicks verification link
+    
+    User->>ALB: GET /verify?token=abc123
+    ALB->>ECS: Route verification request
+    
+    ECS->>RDS: SELECT * FROM verification_tokens<br/>WHERE token=abc123
+    RDS-->>ECS: Token found, not expired
+    
+    ECS->>RDS: UPDATE users SET verified=true<br/>WHERE id=12345
+    RDS-->>ECS: User verified
+    
+    ECS->>Redis: Update cached user<br/>SET user:12345 verified=true
+    Redis-->>ECS: Cache updated
+    
+    ECS-->>ALB: HTTP 200 OK<br/>"Account verified"
+    ALB-->>User: Redirect to login page
