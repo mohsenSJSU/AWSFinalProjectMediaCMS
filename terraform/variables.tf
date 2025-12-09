@@ -10,6 +10,17 @@ variable "project_name" {
   default     = "mediacms"
 }
 
+variable "environment" {
+  description = "Environment name (e.g., dev, staging, production)"
+  type        = string
+  default     = "production"
+
+  validation {
+    condition     = contains(["dev", "staging", "production"], var.environment)
+    error_message = "Environment must be dev, staging, or production."
+  }
+}
+
 # Database Configuration
 variable "db_instance_class" {
   description = "RDS instance type"
