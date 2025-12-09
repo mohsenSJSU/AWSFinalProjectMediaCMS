@@ -113,6 +113,22 @@ resource "aws_cloudwatch_log_group" "ecs" {
   }
 }
 
+# IAM ROLES - PRINCIPLE OF LEAST PRIVILEGE
+# MediaCMS uses TWO separate IAM roles following AWS best practices:
+#
+# 1. EXECUTION ROLE (ecs_execution_role):
+#    - Used by ECS service to set up the task
+#    - Pulls Docker images, writes CloudWatch logs
+#    - Administrative/infrastructure permissions
+#
+# 2. TASK ROLE (ecs_task_role):
+#    - Used by the MediaCMS application itself
+#    - Access to S3 for media storage
+#    - Application-level permissions only
+#
+# This separation ensures ECS infrastructure operations are isolated
+# from application operations, limiting blast radius of any compromise.
+# 
 resource "aws_iam_role" "ecs_execution_role" {
   name = "mohsen-${var.project_name}-ecs-execution"
 
@@ -127,6 +143,19 @@ resource "aws_iam_role" "ecs_execution_role" {
     }]
   })
 }
+
+# ECS Execution Role - AWS Managed Policy
+#
+# Uses AWS managed policy: AmazonECSTaskExecutionRolePolicy
+# This grants permissions for ECS infrastructure operations:
+# - Pull container images from ECR
+# - Write logs to CloudWatch
+# - Retrieve secrets from Secrets Manager (when configured)
+#
+# SECURITY JUSTIFICATION:
+# - This is a well-maintained AWS managed policy
+# - Permissions are scoped to ECS service operations only
+# - Does NOT grant application-level permissions (those use ecs_task_role)
 
 resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
   role       = aws_iam_role.ecs_execution_role.name
@@ -148,25 +177,55 @@ resource "aws_iam_role" "ecs_task_role" {
   })
 }
 
+# IAM Policy - Least Privilege Principle
+# 
+# This policy grants the ECS tasks minimal S3 permissions required for MediaCMS:
+# 1. ListBucket: Required to check if media files exist
+# 2. PutObject: Required to upload videos/images
+# 3. GetObject: Required to stream/download media to users
+# 
+# REMOVED PERMISSIONS (not required for operation):
+# - s3:DeleteObject: Media deletion handled through application logic, not direct S3
+# 
+# SECURITY ENHANCEMENTS:
+# - Condition enforces server-side encryption (AES256)
+# - Separate statements for bucket vs object operations
+# - Explicit resource ARNs (no wildcards at bucket level)
+
 resource "aws_iam_role_policy" "ecs_task_s3_policy" {
   name = "mohsen-${var.project_name}-ecs-s3"
   role = aws_iam_role.ecs_task_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Action = [
-        "s3:PutObject",
-        "s3:GetObject",
-        "s3:DeleteObject",
-        "s3:ListBucket"
-      ]
-      Resource = [
-        "arn:aws:s3:::${var.media_bucket_name}",
-        "arn:aws:s3:::${var.media_bucket_name}/*"
-      ]
-    }]
+    Statement = [
+      {
+        Sid    = "AllowListBucket"
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.media_bucket_name}"
+        ]
+      },
+      {
+        Sid    = "AllowReadWriteObjects"
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject"
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.media_bucket_name}/*"
+        ]
+        Condition = {
+          StringEquals = {
+            "s3:x-amz-server-side-encryption" = "AES256"
+          }
+        }
+      }
+    ]
   })
 }
 

@@ -14,9 +14,7 @@ This project deploys a fully containerized video sharing platform with:
 - **S3** - Media file storage with encryption
 - **CloudWatch** - Monitoring and alerts
 - **VPC** - Isolated network with public/private subnets across 3 AZs
-
 ![Infrastructure Diagram](infrastructure_components.png)
-
 ## Prerequisites
 
 ### Required Tools
@@ -69,24 +67,32 @@ aws configure
 
 ### Step 2: Set Your Variables
 
-Copy the example file and customize with your values:
+Create `terraform.tfvars` with your settings:
 
-```bash
-cp terraform.tfvars.example terraform.tfvars
-nano terraform.tfvars  # Or use your preferred editor
+```hcl
+# terraform.tfvars
+aws_region        = "us-west-2"
+project_name      = "mediacms"
+alarm_email       = "your-email@example.com"  # For CloudWatch alerts
+
+# Database Configuration
+db_password       = "YourSecurePassword123!"  # Change this!
+db_name           = "mediacms"
+db_username       = "mediacms_admin"
+db_instance_class = "db.t3.medium"
+
+# Container Configuration
+ecs_task_cpu      = "2048"   # 2 vCPUs
+ecs_task_memory   = "4096"   # 4 GB RAM
+ecs_desired_count = 2        # Number of containers
+ecs_min_capacity  = 2        # Auto-scaling minimum
+ecs_max_capacity  = 10       # Auto-scaling maximum
+
+# Redis Configuration
+redis_node_type   = "cache.t3.micro"
 ```
 
-**Required changes:**
-- `alarm_email` - Your email address for CloudWatch alerts
-- `db_password` - A strong, unique password for the database
-
-**Optional changes:**
-- `aws_region` - Change if deploying to a different region
-- `ecs_task_cpu` / `ecs_task_memory` - Adjust container resources
-- `ecs_desired_count` - Number of containers to run
-- Other scaling and sizing parameters
-
-**⚠️ IMPORTANT**: Never commit `terraform.tfvars` to version control! It contains secrets.
+**⚠️ IMPORTANT**: Never commit `terraform.tfvars` to version control!
 
 ### Step 3: Initialize Terraform
 
