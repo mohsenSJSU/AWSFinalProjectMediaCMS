@@ -50,28 +50,6 @@ variable "cpu_target_value" {
   type        = number
 }
 
-variable "db_host" {
-  description = "Database host"
-  type        = string
-}
-
-variable "db_name" {
-  description = "Database name"
-  type        = string
-}
-
-variable "db_username" {
-  description = "Database username"
-  type        = string
-  sensitive   = true
-}
-
-variable "db_password" {
-  description = "Database password"
-  type        = string
-  sensitive   = true
-}
-
 variable "redis_host" {
   description = "Redis host"
   type        = string
@@ -84,6 +62,11 @@ variable "media_bucket_name" {
 
 variable "target_group_arn" {
   description = "Target group ARN"
+  type        = string
+}
+
+variable "db_secret_arn" {
+  description = "ARN of Secrets Manager secret containing database credentials"
   type        = string
 }
 
@@ -160,6 +143,34 @@ resource "aws_iam_role" "ecs_execution_role" {
 resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
   role       = aws_iam_role.ecs_execution_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+# Secrets Manager Access for Execution Role
+# 
+# The EXECUTION role needs permission to retrieve secrets at task startup
+# This allows ECS to inject secret values into the container environment
+# 
+# SECURITY NOTE:
+# - Only grants GetSecretValue (not PutSecretValue or DeleteSecret)
+# - Scoped to specific secret ARN only (not all secrets)
+# - Uses temporary IAM role credentials (not long-term keys)
+resource "aws_iam_role_policy" "ecs_execution_secrets_policy" {
+  name = "mohsen-${var.project_name}-ecs-execution-secrets"
+  role = aws_iam_role.ecs_execution_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "AllowRetrieveDatabaseSecret"
+      Effect = "Allow"
+      Action = [
+        "secretsmanager:GetSecretValue"
+      ]
+      Resource = [
+        var.db_secret_arn
+      ]
+    }]
+  })
 }
 
 resource "aws_iam_role" "ecs_task_role" {
@@ -247,15 +258,22 @@ resource "aws_ecs_task_definition" "main" {
       protocol      = "tcp"
     }]
 
+    # Non-sensitive environment variables
     environment = [
-      { name = "POSTGRES_HOST", value = split(":", var.db_host)[0] },
-      { name = "POSTGRES_DB", value = var.db_name },
-      { name = "POSTGRES_USER", value = var.db_username },
-      { name = "POSTGRES_PASSWORD", value = var.db_password },
       { name = "REDIS_HOST", value = var.redis_host },
       { name = "REDIS_PORT", value = "6379" },
       { name = "MEDIA_BUCKET", value = var.media_bucket_name },
       { name = "AWS_REGION", value = data.aws_region.current.name }
+    ]
+
+    # Sensitive secrets retrieved from Secrets Manager at runtime
+    # ECS automatically injects these as environment variables
+    # No hardcoded credentials in task definition!
+    secrets = [
+      { name = "POSTGRES_HOST", valueFrom = "${var.db_secret_arn}:host::" },
+      { name = "POSTGRES_DB", valueFrom = "${var.db_secret_arn}:dbname::" },
+      { name = "POSTGRES_USER", valueFrom = "${var.db_secret_arn}:username::" },
+      { name = "POSTGRES_PASSWORD", valueFrom = "${var.db_secret_arn}:password::" }
     ]
 
     logConfiguration = {

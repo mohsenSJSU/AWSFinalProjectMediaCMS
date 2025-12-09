@@ -167,6 +167,21 @@ module "alb" {
   security_group_ids = [aws_security_group.alb.id]
 }
 
+# Secrets Manager Module *******************************************************
+# 
+# Stores database credentials in AWS Secrets Manager instead of environment variables
+# This eliminates hardcoded secrets and uses temporary IAM credentials
+
+module "secrets" {
+  source = "./modules/secrets"
+
+  project_name = var.project_name
+  db_username  = var.db_username
+  db_password  = var.db_password
+  db_host      = module.rds.db_endpoint
+  db_name      = var.db_name
+}
+
 # ECS Module ******************************************************************
 
 module "ecs" {
@@ -183,13 +198,10 @@ module "ecs" {
   min_capacity      = var.ecs_min_capacity
   max_capacity      = var.ecs_max_capacity
   cpu_target_value  = var.cpu_target_value
-  db_host           = module.rds.db_endpoint
-  db_name           = var.db_name
-  db_username       = var.db_username
-  db_password       = var.db_password
   redis_host        = module.elasticache.redis_endpoint
   media_bucket_name = module.s3.media_bucket_name
   target_group_arn  = module.alb.target_group_arn
+  db_secret_arn     = module.secrets.secret_arn
 }
 
 # Monitoring Module ***********************************************************
