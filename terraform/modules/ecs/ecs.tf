@@ -72,6 +72,11 @@ variable "db_password" {
   sensitive   = true
 }
 
+variable "db_secret_arn" {
+  description = "ARN of the database credentials secret"
+  type        = string
+}
+
 variable "redis_host" {
   description = "Redis host"
   type        = string
@@ -154,17 +159,51 @@ resource "aws_iam_role_policy" "ecs_task_s3_policy" {
 
   policy = jsonencode({
     Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowListBucket"
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.media_bucket_name}"
+        ]
+      },
+      {
+        Sid    = "AllowReadWriteObjects"
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject"
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.media_bucket_name}/*"
+        ]
+        Condition = {
+          StringEquals = {
+            "s3:x-amz-server-side-encryption" = "AES256"
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "ecs_execution_secrets_policy" {
+  name = "mohsen-${var.project_name}-ecs-secrets"
+  role = aws_iam_role.ecs_execution_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
     Statement = [{
+      Sid    = "AllowRetrieveDatabaseSecret"
       Effect = "Allow"
       Action = [
-        "s3:PutObject",
-        "s3:GetObject",
-        "s3:DeleteObject",
-        "s3:ListBucket"
+        "secretsmanager:GetSecretValue"
       ]
       Resource = [
-        "arn:aws:s3:::${var.media_bucket_name}",
-        "arn:aws:s3:::${var.media_bucket_name}/*"
+        var.db_secret_arn
       ]
     }]
   })
@@ -192,11 +231,14 @@ resource "aws_ecs_task_definition" "main" {
       { name = "POSTGRES_HOST", value = split(":", var.db_host)[0] },
       { name = "POSTGRES_DB", value = var.db_name },
       { name = "POSTGRES_USER", value = var.db_username },
-      { name = "POSTGRES_PASSWORD", value = var.db_password },
       { name = "REDIS_HOST", value = var.redis_host },
       { name = "REDIS_PORT", value = "6379" },
       { name = "MEDIA_BUCKET", value = var.media_bucket_name },
       { name = "AWS_REGION", value = data.aws_region.current.name }
+    ]
+
+    secrets = [
+      { name = "POSTGRES_PASSWORD", valueFrom = "${var.db_secret_arn}:password::" }
     ]
 
     logConfiguration = {
