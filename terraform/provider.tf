@@ -14,8 +14,12 @@ provider "aws" {
 
   default_tags {
     tags = {
-      Project   = var.project_name
-      ManagedBy = "Terraform"
+      Project     = var.project_name
+      Environment = var.environment
+      Owner       = "Mohsen Minai"
+      ManagedBy   = "Terraform"
+      CostCenter  = "MediaCMS-Infrastructure"
+      Compliance  = "CMPE-281-FinalProject"
     }
   }
 }
