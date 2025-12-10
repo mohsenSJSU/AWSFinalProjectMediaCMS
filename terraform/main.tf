@@ -156,6 +156,18 @@ module "elasticache" {
   security_group_ids = [aws_security_group.redis.id]
 }
 
+# Secrets Manager Module ******************************************************
+
+module "secrets" {
+  source = "./modules/secrets"
+
+  project_name = var.project_name
+  db_username  = var.db_username
+  db_password  = var.db_password
+  db_host      = module.rds.db_endpoint
+  db_name      = var.db_name
+}
+
 # ALB Module ******************************************************************
 
 module "alb" {
@@ -187,6 +199,7 @@ module "ecs" {
   db_name           = var.db_name
   db_username       = var.db_username
   db_password       = var.db_password
+  db_secret_arn     = module.secrets.secret_arn
   redis_host        = module.elasticache.redis_endpoint
   media_bucket_name = module.s3.media_bucket_name
   target_group_arn  = module.alb.target_group_arn
